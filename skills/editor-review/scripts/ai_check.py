@@ -25,9 +25,12 @@
 
 ## ファイルの扱い
 
-- 最初の `---` だけの行より前はメタ情報として読み飛ばす（無ければ全部が本文）
+- 1行目が `---` なら YAML フロントマターとして、閉じの `---` まで読み飛ばす
+- 最初の `---` より前が見出し・箇条書き・太字だけなら、メタ情報として読み飛ばす
+- それ以外の `---` は場面転換として扱い、前後とも本文に数える
 - 見出し（#）・引用（>）・画像・URL・区切り記号だけの行は本文から外す
 - ファイル名が Foreword / Afterword / まえがき / あとがき のものは語りが違うので外す
+- README.md・Progress.md と、名前が editor_review_ / cross_review_ で始まるもの（評価ファイル）も外す
 """
 from __future__ import annotations
 
@@ -89,14 +92,42 @@ WORD = re.compile(r"[ァ-ヶー]{2,}|[一-龥]{2,}")
 COMMON_WORDS = {"自分", "言っ", "思っ", "時間", "今日", "明日", "最後", "一人", "二人"}
 
 
+# 先頭のメタ情報とみなす行（見出し・箇条書き・太字・引用・空行）
+META_LINE = re.compile(r"^\s*($|#|[-*+] |\*\*|>)")
+
+
+def strip_header(lines: list[str]) -> int:
+    """本文の始まる行の位置（0始まり）を返す。
+
+    - 1行目が `---` なら YAML フロントマター。次の `---` までを飛ばす
+    - 最初の `---` より前が見出し・箇条書き・太字だけなら、メタ情報として飛ばす
+      （「# 第一話」「- **想定文字数**: …」のような見出しの塊）
+    - それ以外の `---` は場面転換。どこも飛ばさない
+    """
+    if lines and lines[0].strip() == "---":
+        for i in range(1, len(lines)):
+            if lines[i].strip() in ("---", "..."):
+                return i + 1
+        return 0  # 閉じていなければフロントマターではない
+    for i, line in enumerate(lines):
+        if line.strip() == "---":
+            if i > 0 and all(META_LINE.match(l) for l in lines[:i]):
+                return i + 1
+            return 0
+    return 0
+
+
+def utf8_stdout() -> None:
+    """Windows（cp932）でパイプに書くと絵文字・日本語で止まるので、出力を UTF-8 にする。"""
+    for s in (sys.stdout, sys.stderr):
+        if hasattr(s, "reconfigure") and (s.encoding or "").lower().replace("-", "") != "utf8":
+            s.reconfigure(encoding="utf-8")
+
+
 def body_lines(path: Path) -> list[tuple[int, str]]:
-    """（行番号, 行）の本文だけを返す。メタ情報（最初の --- まで）は捨てる。"""
-    text = path.read_text(encoding="utf-8")
-    lines = text.split("\n")
-    start = 0
-    if "\n---\n" in text:
-        # 最初の --- の次の行から本文
-        start = lines.index("---") + 1
+    """（行番号, 行）の本文だけを返す。先頭のメタ情報は捨てる（strip_header）。"""
+    lines = path.read_text(encoding="utf-8").split("\n")
+    start = strip_header(lines)
     out = []
     for i, line in enumerate(lines[start:], start=start + 1):
         if line.strip() and not SKIP_LINE.match(line):
@@ -207,16 +238,22 @@ def report(path: Path, r: dict) -> int:
     return flags
 
 
-SKIP_STEMS = {"foreword", "afterword", "まえがき", "あとがき"}
+SKIP_STEMS = {"readme", "progress", "foreword", "afterword", "まえがき", "あとがき"}
+# 評価ファイル（editor_review_2026-11-01.md など）は原稿ではない
+SKIP_PREFIXES = ("editor_review", "cross_review")
+
+
+def is_manuscript(f: Path) -> bool:
+    stem = f.stem.lower()
+    return (f.suffix in (".md", ".txt") and stem not in SKIP_STEMS
+            and not stem.startswith(SKIP_PREFIXES))
 
 
 def collect(paths: list[str]) -> list[Path]:
     files: list[Path] = []
     for p in map(Path, paths):
         if p.is_dir():
-            files += sorted(f for f in p.iterdir()
-                            if f.suffix in (".md", ".txt") and f.stem.lower() not in SKIP_STEMS
-                            and f.name.lower() not in ("readme.md",))
+            files += sorted(f for f in p.iterdir() if f.is_file() and is_manuscript(f))
         elif p.exists():
             files.append(p)
         else:
@@ -227,6 +264,7 @@ def collect(paths: list[str]) -> list[Path]:
 
 
 def main(argv: list[str] | None = None) -> int:
+    utf8_stdout()
     ap = argparse.ArgumentParser(description="AI臭さの目印を並べる（直さない）")
     ap.add_argument("paths", nargs="+", help="原稿ファイルか、原稿の入ったフォルダ")
     args = ap.parse_args(argv)
