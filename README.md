@@ -71,6 +71,10 @@ python3 skills/editor-review/scripts/ai_check.py 原稿フォルダ/ep03.md
 ```
 
 原稿は `.md` か `.txt`（UTF-8）。フォルダを渡すとファイル名の順に読みます。話の順と名前の順が違うとき（`Prologue.md` と `Chapter01.md` など）は、ファイルを順に並べて渡してください。
+
+- 1行目が `---` の YAML フロントマターは読み飛ばします。先頭が見出し・箇条書きだけの塊で、そのあとに `---` が来る形（`# 第一話` `- **想定文字数**: …` `---` 本文）も、その塊をメタ情報として飛ばします。本文の途中の `---` は場面転換として扱い、前後とも数えます
+- `README.md`・`Progress.md`・まえがき・あとがきと、評価ファイル（`editor_review_…`・`cross_review_…`）は数えません。`style_stats.py` はフォルダの中を下までたどりますが、`editor_review/`・`process_log/`・`common/`・`publish/` は見ません
+- Windows でも出力は UTF-8 にそろえるので、パイプや Claude Code から呼んでも止まりません
 数字は合否ではなく、「ここを読み直す」の目安です。癖の一覧と直し方は [`skills/editor-review/references/ai_smell.md`](skills/editor-review/references/ai_smell.md) にあります。
 
 ---
